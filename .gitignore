@@ -1,5 +1,29 @@
+# Never commit validator identity, signing material, ledgers or secrets
+.cometbft/
+.devnet/
+.ledger-devnet*/
+.bajar-init-*/
+.tools/
+__pycache__/
+.bajar-cometbft-demo/
+**/priv_validator_key.json
+**/node_key.json
+**/priv_validator_state.json
+*.key
+*.pem
+.env
+.env.*
+build/
+bin/
+.DS_Store
+
+# Existing Solidity prototype in angeltimilsina/bajar
 node_modules/
 artifacts/
 cache/
-.env
 blockchain/besu-test-network/
+
+# Fresh public-testnet state must never enter source control
+.testnet*/
+**/wallets/
+*.log

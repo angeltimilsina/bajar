@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "BAJAR: verify design",
+      "type": "shell",
+      "command": "go run ./cmd/bajarcheck network/spec.json",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "BAJAR: run tests",
+      "type": "shell",
+      "command": "go test ./...",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}
