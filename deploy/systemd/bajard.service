@@ -1,0 +1,39 @@
+[Unit]
+Description=BAJAR bajar-testnet-1 node
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=bajar
+Group=bajar
+StateDirectory=bajar
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/bajar
+ExecStartPre=/usr/local/bin/bajard check-testnet --home /var/lib/bajar
+ExecStart=/usr/local/bin/bajard start --profile testnet --home /var/lib/bajar
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=90
+KillSignal=SIGTERM
+UMask=0077
+LimitNOFILE=4096
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LockPersonality=true
+ReadWritePaths=/var/lib/bajar
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

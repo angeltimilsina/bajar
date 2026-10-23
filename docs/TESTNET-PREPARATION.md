@@ -1,5 +1,11 @@
 # bajar-testnet-1 preparation
 
+This is the foundation PR's preparation plan. The next bootstrap branch implements
+independent initialization, public-only genesis assembly, pinned testnet startup,
+a non-signing RPC role, systemd template and five-network simulation tests. See
+[TESTNET-BOOTSTRAP.md](TESTNET-BOOTSTRAP.md) for current commands. Host provisioning,
+HTTPS/RPC frontend policy, real-host validation and deployment remain outstanding.
+
 This branch publishes the tested Go ledger for review before server deployment.
 It does **not** create a public network. The existing local `.ledger-devnet/`
 remains a separate environment and its validator state must never be exposed.

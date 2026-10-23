@@ -12,6 +12,7 @@ This repository contains design checks and a development-only BAJ ABCI++ ledger 
 - Validator node signing keys are distinct from receiving wallet addresses.
 - Former 20% staking reserve (20 billion BAJ) has not been reassigned; do not choose its beneficiaries without asking.
 - Phase-0 checks, the legacy phase-1 kvstore demo, and the local-development ledger exist. No public network or real-value launch is authorized.
+- Public-testnet bootstrap preparation was approved on 2026-10-23. Use the explicit testnet profile and pinned genesis; keep local defaults. Do not provision hosts or deploy publicly in this preparation task.
 
 ## Software engineering
 - Use audited libraries: NEVER implement signature algorithms or consensus by hand.

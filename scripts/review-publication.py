@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FILES = ['.gitignore', 'AGENTS.md', 'README.md', 'go.mod', 'go.sum']
 TREES = {'cmd': {'.go'}, 'internal': {'.go'}, 'network': {'.json'},
          'docs': {'.md'}, 'scripts': {'.py', '.sh'}, '.vscode': {'.json'},
-         '.github/workflows': {'.yml', '.yaml'}}
+         '.github/workflows': {'.yml', '.yaml'}, 'deploy': {'.service'}}
 PATTERNS = [re.compile(r'-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----'),
             re.compile(r'\b(?:AKIA|ASIA)[A-Z0-9]{16}\b'),
             re.compile(r'\bgh[pousr]_[A-Za-z0-9]{30,}\b'),
