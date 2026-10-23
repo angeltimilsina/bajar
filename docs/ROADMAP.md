@@ -15,6 +15,11 @@
 
 ## Next engineering work
 
+- Public-testnet bootstrap now has independent node initialization, public-key
+  genesis assembly, pinned hash verification, an explicit testnet profile,
+  non-signing RPC-node mode, systemd template and isolated-network tests. Actual
+  hosts, HTTPS frontend, monitoring and public availability remain undeployed.
+
 - Design and implement governance-approved validator admission/removal with explicit
   authorization and tests. Current ledger validator membership is fixed in genesis.
 - Decide allocation beneficiaries and reserve-release rules; no reserve release exists.

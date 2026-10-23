@@ -37,6 +37,10 @@ jobs:
         run: |
           bash scripts/build-ledger.sh
           python3 scripts/ledger-devnet.py e2e
+      - name: Test four validators and an RPC node on five isolated networks
+        run: sudo python3 scripts/testnet-integration.py
+      - name: Validate service template without installation
+        run: sudo python3 scripts/check-service.py
       - name: Stop local validators
         if: always()
         run: |

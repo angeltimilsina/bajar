@@ -10,6 +10,12 @@ GitHub repository contains an earlier Solidity prototype and is outside these
 Go build/test results. See [public testnet preparation](docs/TESTNET-PREPARATION.md)
 for the work required before `bajar-testnet-1` can be deployed.
 
+The bootstrap branch adds independent validator/RPC-node initialization, public-key
+genesis assembly, immutable genesis hash pins and a `bajar-testnet-1` startup
+profile. [Operator commands and isolated-network tests](docs/TESTNET-BOOTSTRAP.md)
+describe this preparation. `start` still defaults to the loopback-only local
+profile; testnet startup requires `--profile testnet`. Nothing is publicly deployed.
+
 ## Current design
 
 | Parameter | Value |

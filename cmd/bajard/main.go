@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"bajar-network-starter/internal/bootstrap"
 	"bajar-network-starter/internal/ledger"
 	dbm "github.com/cometbft/cometbft-db"
 	cfg "github.com/cometbft/cometbft/config"
@@ -170,7 +171,8 @@ func initDevnet(root string) error {
 	fmt.Println("Alice has 1,000 test BAJ. All other allocations remain locked; these are not production beneficiaries.")
 	return nil
 }
-func start(home string) error {
+func start(home string) error { return startProfile(home, "local") }
+func startProfile(home string, profile string) error {
 	home, err := filepath.Abs(home)
 	if err != nil {
 		return err
@@ -193,17 +195,29 @@ func start(home string) error {
 	if err != nil {
 		return err
 	}
-	if !strings.HasPrefix(g.ChainID, "bajar-ledger-local-") || !strings.HasPrefix(c.RPC.ListenAddress, "tcp://127.0.0.1:") || !strings.HasPrefix(c.P2P.ListenAddress, "tcp://127.0.0.1:") {
-		return errors.New("bajard currently supports loopback local devnets only")
-	}
-	for _, path := range []string{c.PrivValidatorKeyFile(), c.PrivValidatorStateFile(), c.NodeKeyFile()} {
-		if _, err := os.Stat(path); err != nil {
+	var pv types.PrivValidator
+	switch profile {
+	case "local":
+		if !strings.HasPrefix(g.ChainID, "bajar-ledger-local-") || bootstrap.Listen(c.RPC.ListenAddress, true) != nil || bootstrap.Listen(c.P2P.ListenAddress, true) != nil {
+			return errors.New("local profile requires a local chain ID and loopback listeners")
+		}
+		for _, path := range []string{c.PrivValidatorKeyFile(), c.PrivValidatorStateFile(), c.NodeKeyFile()} {
+			if _, err := os.Stat(path); err != nil {
+				return err
+			}
+		}
+		localPV := privval.LoadFilePV(c.PrivValidatorKeyFile(), c.PrivValidatorStateFile())
+		if localPV.Key.PubKey.Type() != mldsa65.KeyType {
+			return errors.New("ML-DSA-65 validator key required")
+		}
+		pv = localPV
+	case "testnet":
+		pv, err = bootstrap.ValidateStart(home, c, g)
+		if err != nil {
 			return err
 		}
-	}
-	pv := privval.LoadFilePV(c.PrivValidatorKeyFile(), c.PrivValidatorStateFile())
-	if pv.Key.PubKey.Type() != mldsa65.KeyType {
-		return errors.New("ML-DSA-65 validator key required")
+	default:
+		return errors.New("profile must be local or testnet")
 	}
 	nk, err := p2p.LoadNodeKey(c.NodeKeyFile())
 	if err != nil {
@@ -218,7 +232,8 @@ func start(home string) error {
 	if err != nil {
 		return err
 	}
-	n, err := node.NewNode(c, pv, nk, proxy.NewLocalClientCreator(app), node.DefaultGenesisDocProviderFunc(c), cfg.DefaultDBProvider, node.DefaultMetricsProvider(c.Instrumentation), log.NewTMLogger(log.NewSyncWriter(os.Stdout)))
+	logger := log.NewFilter(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), log.AllowInfo())
+	n, err := node.NewNode(c, pv, nk, proxy.NewLocalClientCreator(app), node.DefaultGenesisDocProviderFunc(c), cfg.DefaultDBProvider, node.DefaultMetricsProvider(c.Instrumentation), logger)
 	if err != nil {
 		return err
 	}
@@ -242,9 +257,12 @@ func printJSON(v any) error {
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: bajard init-devnet|start|wallet-new|address|transfer|query|verify-commit [flags]")
+		return errors.New("usage: bajard init-devnet|init-testnet|assemble-genesis|install-genesis|configure-testnet|check-testnet|start|wallet-new|address|transfer|query|verify-commit [flags]")
 	}
 	command := os.Args[1]
+	if handled, err := bootstrapCommand(command, os.Args[2:]); handled {
+		return err
+	}
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	home := f.String("home", ".ledger-devnet/nodes/node0", "node home")
 	dir := f.String("dir", ".ledger-devnet", "new local devnet directory")
@@ -254,6 +272,9 @@ func run() error {
 	value := f.String("amount", "", "amount in integer base units (1 BAJ = 1000000000)")
 	path := f.String("path", "/supply", "query path: /account, /supply, /state")
 	address := f.String("address", "", "account to query")
+	profile := f.String("profile", "local", "local or explicit testnet profile")
+	trustedGenesis := f.String("genesis", "", "trusted testnet genesis for commit verification")
+	genesisHash := f.String("sha256", "", "out-of-band trusted genesis SHA-256")
 	if err := f.Parse(os.Args[2:]); err != nil {
 		return err
 	}
@@ -264,7 +285,7 @@ func run() error {
 	case "init-devnet":
 		return initDevnet(*dir)
 	case "start":
-		return start(*home)
+		return startProfile(*home, *profile)
 	case "wallet-new":
 		k, err := wallet(*key)
 		if err != nil {
@@ -280,8 +301,8 @@ func run() error {
 		fmt.Println(ledger.Address(k.PubKey().Bytes()))
 		return nil
 	}
-	if !strings.HasPrefix(*endpoint, "http://127.0.0.1:") {
-		return errors.New("local RPC endpoint required")
+	if err := validateEndpoint(*endpoint, *profile); err != nil {
+		return err
 	}
 	client, err := rpc.New(*endpoint, "/websocket")
 	if err != nil {
@@ -289,6 +310,18 @@ func run() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	if *profile == "testnet" {
+		supply, err := client.ABCIQuery(ctx, "/supply", nil)
+		if err != nil {
+			return err
+		}
+		var info struct {
+			ChainID string `json:"chain_id"`
+		}
+		if err := json.Unmarshal(supply.Response.Value, &info); err != nil || supply.Response.Code != 0 || info.ChainID != bootstrap.ChainID {
+			return errors.New("RPC is not serving bajar-testnet-1")
+		}
+	}
 	switch command {
 	case "query":
 		r, err := client.ABCIQuery(ctx, *path, []byte(*address))
@@ -350,6 +383,9 @@ func run() error {
 		if err != nil {
 			return err
 		}
+		if err := r.SignedHeader.ValidateBasic(r.ChainID); err != nil {
+			return err
+		}
 		h := r.Height
 		page, perPage := 1, 100
 		vs, err := client.Validators(ctx, &h, &page, &perPage)
@@ -365,6 +401,20 @@ func run() error {
 			}
 		}
 		set := types.NewValidatorSet(vs.Validators)
+		if *profile == "testnet" {
+			genesis, _, err := bootstrap.ReadGenesis(*trustedGenesis, *genesisHash)
+			if err != nil {
+				return err
+			}
+			trusted := make([]*types.Validator, 0, len(genesis.Validators))
+			for _, v := range genesis.Validators {
+				trusted = append(trusted, types.NewValidator(v.PubKey, v.Power))
+			}
+			set = types.NewValidatorSet(trusted)
+			if r.ChainID != bootstrap.ChainID {
+				return errors.New("commit chain mismatch")
+			}
+		}
 		if err := set.VerifyCommit(r.ChainID, r.Commit.BlockID, h, r.Commit); err != nil {
 			return err
 		}

@@ -4,9 +4,11 @@
 
 `cmd/bajard` embeds CometBFT v0.40.0 and `internal/ledger` in each node. No
 consensus or signature algorithm is implemented here. ML-DSA-65 uses CometBFT's
-`crypto/mldsa65` wrapper around Cloudflare CIRCL. Startup accepts only local-chain
-IDs and loopback RPC/P2P listeners. This is development software without public
-deployment or real-value issuance.
+`crypto/mldsa65` wrapper around Cloudflare CIRCL. The default local profile accepts
+only local-chain IDs and loopback RPC/P2P listeners. The separate explicit
+[testnet bootstrap profile](TESTNET-BOOTSTRAP.md) adds pinned genesis and public
+P2P support while keeping all raw RPC listeners private. This is development
+software without public deployment or real-value issuance.
 
 Genesis must total exactly 108,000,000,000,000,000,000 base units at 9 decimals.
 The separate reserve is exactly 8B BAJ. The former staking pool is exactly 20B
