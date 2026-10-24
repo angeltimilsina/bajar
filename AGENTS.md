@@ -5,7 +5,8 @@ This repository contains design checks and a development-only BAJ ABCI++ ledger 
 ## Product decisions
 - BAJ native coin maximum supply: exactly 108,000,000,000 BAJ (user-approved revision, 2026-10-23).
 - Tokenomics: 100,000,000,000 BAJ; separate locked reserve: 8,000,000,000 BAJ.
-- Decimals: 9. This implies 108,000,000,000,000,000,000 base units; do NOT use signed int64 to represent whole coin supply.
+- Current target (user-approved 2026-10-24): protocol v2 uses 6 decimals and 108,000,000,000,000,000 base units. Keep arbitrary-precision accounting. Existing protocol v1 uses 9 decimals and remains unchanged; never reinterpret or reset its data.
+- Optional staking and transaction-fee-only rewards are approved for v2. Staking must not affect validator admission or voting power. No inflation, reserve release or reassignment is approved.
 - Initial validators: governance-approved cloud endpoints; no BAJ stake/delegation required for consensus.
 - Use Byzantine fault-tolerant consensus; target CometBFT v0.40+.
 - Target ML-DSA-65 for transaction and validator signatures; distinguish local implementation/testing from audited production security.
@@ -13,6 +14,7 @@ This repository contains design checks and a development-only BAJ ABCI++ ledger 
 - Former 20% staking reserve (20 billion BAJ) has not been reassigned; do not choose its beneficiaries without asking.
 - Phase-0 checks, the legacy phase-1 kvstore demo, and the local-development ledger exist. No public network or real-value launch is authorized.
 - Public-testnet bootstrap preparation was approved on 2026-10-23. Use the explicit testnet profile and pinned genesis; keep local defaults. Do not provision hosts or deploy publicly in this preparation task.
+- Oracle hosting is explicitly deferred until a later development stage (2026-10-24). No cloud provisioning or pipeline diagnosis is currently required.
 
 ## Software engineering
 - Use audited libraries: NEVER implement signature algorithms or consensus by hand.

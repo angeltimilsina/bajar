@@ -42,6 +42,7 @@ func bootstrapCommand(command string, args []string) (bool, error) {
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	home := f.String("home", "", "new per-host home")
 	role := f.String("role", "validator", "validator or rpc")
+	chain := f.String("chain-id", bootstrap.ChainID, "explicit testnet ID; v2 is bajar-testnet-2")
 	name := f.String("name", "", "unique node name")
 	advertise := f.String("advertise", "", "P2P host:port, reachable by peers")
 	p2p := f.String("p2p-listen", "tcp://0.0.0.0:26656", "P2P bind address")
@@ -64,7 +65,7 @@ func bootstrapCommand(command string, args []string) (bool, error) {
 	}
 	switch command {
 	case "init-testnet":
-		i, err := bootstrap.Init(bootstrap.InitOptions{Home: *home, Role: *role, Name: *name, Advertise: *advertise, P2PListen: *p2p, RPCListen: *rpc})
+		i, err := bootstrap.Init(bootstrap.InitOptions{Home: *home, Role: *role, Name: *name, Advertise: *advertise, P2PListen: *p2p, RPCListen: *rpc, ChainID: *chain})
 		if err != nil {
 			return true, err
 		}

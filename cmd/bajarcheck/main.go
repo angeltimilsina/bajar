@@ -24,6 +24,10 @@ func main() {
 	fmt.Println("BAJAR specification: VALID")
 	fmt.Println("Chain ID (planned):", s.ChainID)
 	fmt.Println("Supply:", s.MaxSupplyBAJ, s.Denom)
+	fmt.Println("Decimals:", s.Decimals)
+	if s.ProtocolVersion == 2 {
+		fmt.Println("Staking:", s.StakingMode, "Rewards:", s.RewardFunding)
+	}
 	fmt.Println("Base units (big integer):", units.String())
 	fmt.Println("Consensus:", s.ConsensusEngine)
 	fmt.Println("Validator signature target:", s.PostQuantumConsensusTarget)

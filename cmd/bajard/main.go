@@ -17,7 +17,9 @@ import (
 
 	"bajar-network-starter/internal/bootstrap"
 	"bajar-network-starter/internal/ledger"
+	"bajar-network-starter/internal/ledgerv2"
 	dbm "github.com/cometbft/cometbft-db"
+	abci "github.com/cometbft/cometbft/abci/types"
 	cfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/crypto/mldsa65"
 	cmtjson "github.com/cometbft/cometbft/libs/json"
@@ -65,7 +67,8 @@ func readKey(path string) (mldsa65.PrivKey, error) {
 	}
 	return mldsa65.NewPrivKeyFromBytes(raw)
 }
-func initDevnet(root string) error {
+func initDevnet(root string) error { return initDevnetVersion(root, 1) }
+func initDevnetVersion(root string, protocol int) error {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return err
@@ -109,6 +112,16 @@ func initDevnet(root string) error {
 		return err
 	}
 	appState, _ := json.Marshal(g)
+	if protocol == 2 {
+		chainID = fmt.Sprintf("bajar-staking-local-%d", time.Now().UnixNano())
+		stakingGenesis, err := newStakingGenesis(chainID, addresses["alice"], 100)
+		if err != nil {
+			return err
+		}
+		appState, _ = json.Marshal(stakingGenesis)
+	} else if protocol != 1 {
+		return errors.New("unsupported protocol version")
+	}
 	vals := make([]types.GenesisValidator, 4)
 	ids := make([]p2p.ID, 4)
 	for i := 0; i < 4; i++ {
@@ -198,7 +211,7 @@ func startProfile(home string, profile string) error {
 	var pv types.PrivValidator
 	switch profile {
 	case "local":
-		if !strings.HasPrefix(g.ChainID, "bajar-ledger-local-") || bootstrap.Listen(c.RPC.ListenAddress, true) != nil || bootstrap.Listen(c.P2P.ListenAddress, true) != nil {
+		if (!strings.HasPrefix(g.ChainID, "bajar-ledger-local-") && !strings.HasPrefix(g.ChainID, "bajar-staking-local-")) || bootstrap.Listen(c.RPC.ListenAddress, true) != nil || bootstrap.Listen(c.P2P.ListenAddress, true) != nil {
 			return errors.New("local profile requires a local chain ID and loopback listeners")
 		}
 		for _, path := range []string{c.PrivValidatorKeyFile(), c.PrivValidatorStateFile(), c.NodeKeyFile()} {
@@ -223,12 +236,32 @@ func startProfile(home string, profile string) error {
 	if err != nil {
 		return err
 	}
-	db, err := dbm.NewGoLevelDB("bajar", c.DBDir())
+	var version struct {
+		ProtocolVersion int `json:"protocol_version"`
+	}
+	if err := json.Unmarshal(g.AppState, &version); err != nil {
+		return err
+	}
+	dbName := "bajar"
+	if version.ProtocolVersion == 2 {
+		dbName = "bajar-v2"
+	} else if version.ProtocolVersion != 0 && version.ProtocolVersion != 1 {
+		return errors.New("unsupported ledger protocol")
+	}
+	if strings.HasPrefix(g.ChainID, "bajar-staking-local-") && version.ProtocolVersion != 2 {
+		return errors.New("staking chain requires protocol v2")
+	}
+	db, err := dbm.NewGoLevelDB(dbName, c.DBDir())
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	app, err := ledger.New(db)
+	var app abci.Application
+	if version.ProtocolVersion == 2 {
+		app, err = ledgerv2.New(db)
+	} else {
+		app, err = ledger.New(db)
+	}
 	if err != nil {
 		return err
 	}
@@ -257,7 +290,7 @@ func printJSON(v any) error {
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: bajard init-devnet|init-testnet|assemble-genesis|install-genesis|configure-testnet|check-testnet|start|wallet-new|address|transfer|query|verify-commit [flags]")
+		return errors.New("usage: bajard init-devnet|init-staking-devnet|init-testnet|assemble-genesis|install-genesis|configure-testnet|check-testnet|start|wallet-new|address|transfer|stake|unstake|claim|withdraw|query|verify-commit [flags]")
 	}
 	command := os.Args[1]
 	if handled, err := bootstrapCommand(command, os.Args[2:]); handled {
@@ -273,6 +306,7 @@ func run() error {
 	path := f.String("path", "/supply", "query path: /account, /supply, /state")
 	address := f.String("address", "", "account to query")
 	profile := f.String("profile", "local", "local or explicit testnet profile")
+	expectedChain := f.String("chain-id", bootstrap.ChainID, "expected testnet chain ID for remote clients")
 	trustedGenesis := f.String("genesis", "", "trusted testnet genesis for commit verification")
 	genesisHash := f.String("sha256", "", "out-of-band trusted genesis SHA-256")
 	if err := f.Parse(os.Args[2:]); err != nil {
@@ -284,6 +318,8 @@ func run() error {
 	switch command {
 	case "init-devnet":
 		return initDevnet(*dir)
+	case "init-staking-devnet":
+		return initDevnetVersion(*dir, 2)
 	case "start":
 		return startProfile(*home, *profile)
 	case "wallet-new":
@@ -318,7 +354,7 @@ func run() error {
 		var info struct {
 			ChainID string `json:"chain_id"`
 		}
-		if err := json.Unmarshal(supply.Response.Value, &info); err != nil || supply.Response.Code != 0 || info.ChainID != bootstrap.ChainID {
+		if err := json.Unmarshal(supply.Response.Value, &info); err != nil || supply.Response.Code != 0 || info.ChainID != *expectedChain || (*expectedChain != bootstrap.ChainID && *expectedChain != bootstrap.StakingChainID) {
 			return errors.New("RPC is not serving bajar-testnet-1")
 		}
 	}
@@ -333,7 +369,7 @@ func run() error {
 		}
 		fmt.Println(string(r.Response.Value))
 		return nil
-	case "transfer":
+	case "transfer", "stake", "unstake", "claim", "withdraw":
 		k, err := readKey(*key)
 		if err != nil {
 			return err
@@ -346,8 +382,9 @@ func run() error {
 			return errors.New(supply.Response.Log)
 		}
 		var info struct {
-			ChainID string `json:"chain_id"`
-			Fee     string `json:"fee"`
+			ChainID         string `json:"chain_id"`
+			Fee             string `json:"fee"`
+			ProtocolVersion int    `json:"protocol_version"`
 		}
 		if err := json.Unmarshal(supply.Response.Value, &info); err != nil {
 			return err
@@ -363,7 +400,22 @@ func run() error {
 		if err := json.Unmarshal(account.Response.Value, &a); err != nil {
 			return err
 		}
-		tx, err := ledger.Sign(k, ledger.UnsignedTx{Version: 1, ChainID: info.ChainID, To: *to, Amount: *value, Fee: info.Fee, Nonce: a.Nonce + 1})
+		var tx []byte
+		if info.ProtocolVersion == 2 {
+			amount := *value
+			if command == "claim" || command == "withdraw" {
+				if amount != "" || *to != "" {
+					return errors.New("claim/withdraw take no amount or recipient")
+				}
+				amount = "0"
+			}
+			tx, err = ledgerv2.Sign(k, ledgerv2.UnsignedTx{Version: 2, ChainID: info.ChainID, Kind: command, To: *to, Amount: amount, Fee: info.Fee, Nonce: a.Nonce + 1})
+		} else {
+			if command != "transfer" {
+				return errors.New("staking requires protocol v2")
+			}
+			tx, err = ledger.Sign(k, ledger.UnsignedTx{Version: 1, ChainID: info.ChainID, To: *to, Amount: *value, Fee: info.Fee, Nonce: a.Nonce + 1})
+		}
 		if err != nil {
 			return err
 		}
@@ -411,7 +463,7 @@ func run() error {
 				trusted = append(trusted, types.NewValidator(v.PubKey, v.Power))
 			}
 			set = types.NewValidatorSet(trusted)
-			if r.ChainID != bootstrap.ChainID {
+			if r.ChainID != *expectedChain || genesis.ChainID != *expectedChain {
 				return errors.New("commit chain mismatch")
 			}
 		}

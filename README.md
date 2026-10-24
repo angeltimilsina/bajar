@@ -18,18 +18,24 @@ profile; testnet startup requires `--profile testnet`. Nothing is publicly deplo
 
 ## Current design
 
+Protocol v2 implements the approved six-decimal, optional-staking design in a
+separate application and database. Existing v1 chains keep their nine-decimal
+interpretation. See [staking rules and migration limits](docs/STAKING-V2.md) and
+[security review and verification](docs/SECURITY-REVIEW.md).
+
 | Parameter | Value |
 | --- | --- |
 | Maximum supply | 108,000,000,000 BAJ |
 | Tokenomics allocation | 100,000,000,000 BAJ |
 | Separate reserve | 8,000,000,000 BAJ |
-| Decimals | 9 |
-| Smallest unit | 0.000000001 BAJ |
-| Total base units | 108,000,000,000,000,000,000 |
+| Decimals | 6 for v2; 9 for retained v1 chains |
+| Smallest v2 unit | 0.000001 BAJ |
+| Total v2 base units | 108,000,000,000,000,000 |
 | Transaction signatures | ML-DSA-65 using CometBFT's CIRCL-backed library |
 | Local validator signatures | ML-DSA-65 |
 | Consensus | CometBFT v0.40.0; four equal-power local validators |
 | Validator stake/delegation | Not required |
+| Optional staking rewards | Transaction fees only; no inflation or reserve funding |
 
 The 108B cap supersedes the former 100B proposal. All amounts use `math/big`,
 encoded as canonical decimal strings in base units. No mint transaction exists.
@@ -38,13 +44,15 @@ it is not the new separate 8B reserve. Neither reserve has assigned beneficiarie
 
 ## Build and run (Linux or WSL2)
 
-Use Go 1.25+ and Python 3.9+. From the repository root:
+Use Go 1.27.3 and Python 3.9+. From the repository root:
 
 ```bash
 go test ./...
 go run ./cmd/bajarcheck network/spec.json
+go run ./cmd/bajarcheck network/spec-v2.json
 bash scripts/build-ledger.sh
 python3 scripts/ledger-devnet.py e2e
+python3 scripts/staking-devnet.py
 ```
 
 The end-to-end command initializes a fresh local chain if needed, exercises it,
@@ -61,7 +69,8 @@ python3 scripts/ledger-devnet.py start
 python3 scripts/ledger-devnet.py stop
 ```
 
-`--amount` is integer base units: `1000000000` transfers 1 BAJ. Local transfers
+The interactive commands above use legacy v1. `--amount` is integer base units:
+`1000000000` transfers 1 BAJ on v1; v2 uses `1000000`. Legacy local transfers
 charge 1,000 base units (0.000001 BAJ), held in a locked fee pool. This is a
 test policy, not finalized production economics.
 

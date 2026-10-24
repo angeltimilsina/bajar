@@ -1,0 +1,20 @@
+{
+  "protocol_version": 2,
+  "chain_id": "bajar-testnet-2",
+  "denom": "BAJ",
+  "max_supply_baj": "108000000000",
+  "decimals": 6,
+  "consensus_engine": "CometBFT",
+  "validator_admission": "governance-approved",
+  "validator_target": 4,
+  "validator_stake_required": false,
+  "post_quantum_consensus_target": "mldsa65",
+  "transaction_signature_target": "mldsa65",
+  "staking_mode": "optional",
+  "reward_funding": "fees-only",
+  "allocations": [
+    {"name": "former_staking_reserve_policy_pending", "baj": "20000000000"},
+    {"name": "remaining_genesis_policy_pending", "baj": "80000000000"},
+    {"name": "separate_reserve_policy_pending", "baj": "8000000000"}
+  ]
+}
