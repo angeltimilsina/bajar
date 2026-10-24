@@ -32,12 +32,16 @@ def request(payload):
     return result['result']
 
 
-def run():
+def run(protocol=1):
     if os.geteuid() != 0:
         raise SystemExit('Run with sudo (network namespace administration only); build the binary first.')
     if not EXE.is_file():
         raise SystemExit('Build first: bash scripts/build-ledger.sh')
     os.umask(0o077)
+    decimals = 6 if protocol == 2 else 9
+    fee = 1 if protocol == 2 else 1000
+    chain_id = 'bajar-testnet-2' if protocol == 2 else 'bajar-testnet-1'
+    client_args = ['--profile', 'testnet', '--chain-id', chain_id, '--rpc', 'http://127.0.0.1:26657']
     tag = uuid.uuid4().hex[:8]
     bridge = 'bjb' + tag
     switch = f'bajar-{tag}-switch'
@@ -130,11 +134,11 @@ def run():
             role = 'validator' if i < 4 else 'rpc'
             identities.append(json.loads(cli(i, 'init-testnet', '--home', str(homes/f'node{i}'),
                                               '--role', role, '--name', f'node{i}',
-                                              '--advertise', address+':26656')))
+                                              '--advertise', address+':26656', '--chain-id', chain_id)))
         (homes/'validators.json').write_text(json.dumps(identities[:4]))
         alice = cli(None, 'wallet-new', '--key', str(homes/'alice.key'))
         bob = cli(None, 'wallet-new', '--key', str(homes/'bob.key'))
-        (homes/'test-allocations.json').write_text(json.dumps({alice: '1000000000000'}))
+        (homes/'test-allocations.json').write_text(json.dumps({alice: str(1000 * 10**decimals)}))
         genesis = homes/'genesis.json'
         when = (datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat(timespec='seconds').replace('+00:00', 'Z')
         digest = cli(None, 'assemble-genesis', '--identities', str(homes/'validators.json'),
@@ -164,16 +168,16 @@ def run():
         commits = [rpc(i, 'commit', {'height': h})['signed_header'] for i in range(5)]
         assert len({c['commit']['block_id']['hash'] for c in commits}) == 1
         assert len({c['header']['app_hash'] for c in commits}) == 1
-        cli(4, 'verify-commit', '--profile', 'testnet', '--rpc', 'http://127.0.0.1:26657',
+        cli(4, 'verify-commit', *client_args,
             '--genesis', str(genesis), '--sha256', digest)
-        result = json.loads(cli(4, 'transfer', '--profile', 'testnet', '--rpc', 'http://127.0.0.1:26657',
-                                '--key', str(homes/'alice.key'), '--to', bob, '--amount', '1000000000'))
-        wait_for(lambda: all(query(i, bob)['balance'] == '1000000000' for i in range(5)), 'RPC transfer replication')
+        result = json.loads(cli(4, 'transfer', *client_args,
+                                '--key', str(homes/'alice.key'), '--to', bob, '--amount', str(10**decimals)))
+        wait_for(lambda: all(query(i, bob)['balance'] == str(10**decimals) for i in range(5)), 'RPC transfer replication')
         for i in range(5):
-            assert query(i, alice) == dict(balance='998999999000', nonce=1)
-            assert query(i, 'pool:fees')['balance'] == '1000'
-            assert query(i, 'pool:separate_reserve')['balance'] == '8000000000000000000'
-            assert query(i, 'pool:former_staking_reserve')['balance'] == '20000000000000000000'
+            assert query(i, alice) == dict(balance=str(999 * 10**decimals-fee), nonce=1)
+            assert query(i, 'pool:fees')['balance'] == str(fee)
+            assert query(i, 'pool:separate_reserve')['balance'] == str(8_000_000_000 * 10**decimals)
+            assert query(i, 'pool:former_staking_reserve')['balance'] == str(20_000_000_000 * 10**decimals)
         txs = rpc(4, 'block', {'height': result['height']})['block']['data']['txs']
         tx = next(t for t in txs if hashlib.sha256(base64.b64decode(t)).hexdigest().upper() == result['hash'])
         assert rpc(4, 'check_tx', {'tx': tx})['code'] != 0
@@ -184,7 +188,7 @@ def run():
         for i in range(5):
             launch(i)
         wait_for(lambda: all(height(i) > previous[i] for i in range(5)), 'restart readiness')
-        assert query(4, bob)['balance'] == '1000000000'
+        assert query(4, bob)['balance'] == str(10**decimals)
         assert rpc(4, 'check_tx', {'tx': tx})['code'] != 0
         # One validator outage preserves quorum; two outages stop finalization.
         stop_process(processes[8])  # second launch of validator 3
@@ -198,7 +202,7 @@ def run():
         assert height(4) == stalled, 'Chain finalized without >2/3 quorum'
         launch(2)
         wait_for(lambda: height(4) >= stalled+2, 'quorum recovery', timeout=45)
-        cli(4, 'verify-commit', '--profile', 'testnet', '--rpc', 'http://127.0.0.1:26657',
+        cli(4, 'verify-commit', *client_args,
             '--genesis', str(genesis), '--sha256', digest)
         for i in range(4):
             assert hashlib.sha256((homes/f'node{i}/config/priv_validator_key.json').read_bytes()).hexdigest() == key_hashes[i]
@@ -223,13 +227,14 @@ def run():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rpc-call', help=argparse.SUPPRESS)
+    parser.add_argument('--protocol-version', type=int, choices=[1, 2], default=1)
     args = parser.parse_args()
     if args.rpc_call:
         print(json.dumps(request(json.loads(args.rpc_call))))
         return
     with (ROOT/'.tools/testnet-integration.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        run()
+        run(args.protocol_version)
 
 
 if __name__ == '__main__':

@@ -78,3 +78,27 @@ func TestPreviousSupplyAndReserveMismatchRejected(t *testing.T) {
 		t.Fatal("accepted incorrect separate reserve despite matching total")
 	}
 }
+
+func TestSixDecimalStakingProtocol(t *testing.T) {
+	s := valid()
+	s.ProtocolVersion = 2
+	s.Decimals = 6
+	s.StakingMode = "optional"
+	s.RewardFunding = "fees-only"
+	n, err := BaseUnits(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.String() != "108000000000000000" {
+		t.Fatal(n)
+	}
+	s.ProtocolVersion = 1
+	if Validate(s) == nil {
+		t.Fatal("silently changed legacy precision")
+	}
+	s.ProtocolVersion = 2
+	s.RewardFunding = "minting"
+	if Validate(s) == nil {
+		t.Fatal("inflationary rewards accepted")
+	}
+}

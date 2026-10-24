@@ -21,7 +21,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version: '1.25.0'
+          go-version: '1.27.3'
           cache: true
       - name: Verify dependencies, ledger and design
         run: |
@@ -30,6 +30,8 @@ jobs:
           go test -race ./...
           go vet ./...
           go run ./cmd/bajarcheck network/spec.json
+          go run ./cmd/bajarcheck network/spec-v2.json
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
           go test github.com/cometbft/cometbft/crypto/mldsa65
           python3 -m unittest discover -s scripts -p 'test_*.py' -v
           python3 scripts/review-publication.py
@@ -37,8 +39,11 @@ jobs:
         run: |
           bash scripts/build-ledger.sh
           python3 scripts/ledger-devnet.py e2e
+          python3 scripts/staking-devnet.py
       - name: Test four validators and an RPC node on five isolated networks
-        run: sudo python3 scripts/testnet-integration.py
+        run: |
+          sudo python3 scripts/testnet-integration.py
+          sudo python3 scripts/testnet-integration.py --protocol-version 2
       - name: Validate service template without installation
         run: sudo python3 scripts/check-service.py
       - name: Stop local validators

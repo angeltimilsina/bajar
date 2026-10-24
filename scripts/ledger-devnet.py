@@ -16,6 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / '.ledger-devnet'
 EXE = ROOT / '.tools/bin/bajard'
 RECORD = DATA / 'processes.json'
+INIT_COMMAND = 'init-devnet'
+CHAIN_PREFIX = 'bajar-ledger-local-'
+EXPECTED_SUPPLY = '108000000000000000000'
 
 
 def rpc(index, method, params=None):
@@ -68,7 +71,7 @@ def smoke():
             statuses = [rpc(i, 'status') for i in range(4)]
             before = [int(s['sync_info']['latest_block_height']) for s in statuses]
             chain = {s['node_info']['network'] for s in statuses}
-            if len(chain) != 1 or not next(iter(chain)).startswith('bajar-ledger-local-'):
+            if len(chain) != 1 or not next(iter(chain)).startswith(CHAIN_PREFIX):
                 raise RuntimeError('Unexpected chain')
             if any(int(rpc(i, 'net_info')['n_peers']) != 3 for i in range(4)):
                 raise RuntimeError('Expected three peers each')
@@ -84,7 +87,7 @@ def smoke():
                 raise RuntimeError('Application roots differ')
             for i in range(4):
                 subprocess.run([str(EXE), 'verify-commit', '--rpc', f'http://127.0.0.1:{27657+i*10}'], check=True)
-                assert query(i, '/supply')['base_units'] == '108000000000000000000'
+                assert query(i, '/supply')['base_units'] == EXPECTED_SUPPLY
             print(f'PASS: ledger heights {before} -> {after}, common block and app root at {height}')
             return
         except (OSError, RuntimeError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
@@ -99,7 +102,7 @@ def start():
     if RECORD.exists():
         raise RuntimeError('Process record exists; stop before restarting')
     if not DATA.exists():
-        subprocess.run([str(EXE), 'init-devnet', '--dir', str(DATA)], check=True)
+        subprocess.run([str(EXE), INIT_COMMAND, '--dir', str(DATA)], check=True)
     pids = []
     try:
         for i in range(4):

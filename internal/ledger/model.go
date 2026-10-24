@@ -61,6 +61,9 @@ type Transaction struct {
 }
 
 func Decode(raw []byte, v any) error {
+	if err := ValidateJSON(raw); err != nil {
+		return err
+	}
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if err := d.Decode(v); err != nil {
@@ -71,6 +74,65 @@ func Decode(raw []byte, v any) error {
 		return errors.New("trailing JSON data")
 	}
 	return nil
+}
+
+// ValidateJSON rejects ambiguous duplicate members before either JSON codec is
+// used. Escaped spellings of the same key are treated as duplicates too.
+func ValidateJSON(raw []byte) error {
+	type frame struct {
+		object, key bool
+		seen        map[string]bool
+	}
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	var stack []frame
+	for {
+		token, err := d.Token()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if delimiter, ok := token.(json.Delim); ok {
+			switch delimiter {
+			case '{', '[':
+				if len(stack) > 0 && stack[len(stack)-1].object {
+					stack[len(stack)-1].key = true
+				}
+				if len(stack) >= 64 {
+					return errors.New("JSON nesting limit exceeded")
+				}
+				f := frame{object: delimiter == '{', key: delimiter == '{'}
+				if f.object {
+					f.seen = map[string]bool{}
+				}
+				stack = append(stack, f)
+			case '}', ']':
+				if len(stack) == 0 {
+					return errors.New("invalid JSON nesting")
+				}
+				stack = stack[:len(stack)-1]
+			}
+			continue
+		}
+		if len(stack) > 0 && stack[len(stack)-1].object {
+			f := &stack[len(stack)-1]
+			if f.key {
+				key, ok := token.(string)
+				if !ok {
+					return errors.New("invalid object key")
+				}
+				if f.seen[key] {
+					return errors.New("duplicate JSON member")
+				}
+				f.seen[key] = true
+				f.key = false
+			} else {
+				f.key = true
+			}
+		}
+	}
 }
 func amount(s string) (*big.Int, error) {
 	if len(s) == 0 || len(s) > len(MaxSupply) || (len(s) > 1 && s[0] == '0') {

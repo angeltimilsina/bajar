@@ -142,6 +142,11 @@ func TestGenesisPinAndInstallBoundaries(t *testing.T) {
 	}
 	c, err := LoadConfig(homes[0])
 	must(t, err)
+	altered := *g
+	altered.GenesisTime = g.GenesisTime.Add(time.Second)
+	if _, err := ValidateStart(homes[0], c, &altered); err == nil {
+		t.Fatal("startup accepted a different in-memory genesis with the same chain ID")
+	}
 	must(t, os.WriteFile(c.GenesisFile(), append(original, '\n'), 0600))
 	if _, err := ValidateStart(homes[0], c, g); err == nil {
 		t.Fatal("startup ignored changed genesis")
@@ -189,6 +194,11 @@ func TestIdentityAndPeerValidation(t *testing.T) {
 	bad.P2PAddress = "0.0.0.0:26656"
 	if bad.Validate() == nil {
 		t.Fatal("wildcard advertisement")
+	}
+	bad = ids[0]
+	bad.ChainID = StakingChainID
+	if _, err := PeerString(ids[1], []Identity{bad}); err == nil {
+		t.Fatal("mixed protocol peers")
 	}
 	bad = ids[0]
 	bad.Name = "escape\"\n"

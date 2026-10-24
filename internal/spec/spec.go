@@ -12,6 +12,9 @@ import (
 
 // Specification describes design constraints only: this package is NOT a blockchain.
 type Specification struct {
+	ProtocolVersion            int          `json:"protocol_version,omitempty"`
+	StakingMode                string       `json:"staking_mode,omitempty"`
+	RewardFunding              string       `json:"reward_funding,omitempty"`
 	ChainID                    string       `json:"chain_id"`
 	Denom                      string       `json:"denom"`
 	MaxSupplyBAJ               string       `json:"max_supply_baj"`
@@ -75,8 +78,17 @@ func Validate(s Specification) error {
 	if s.Denom != "BAJ" {
 		return errors.New("native denom must be BAJ")
 	}
-	if s.Decimals != 9 {
-		return errors.New("this proposed design specifies 9 decimals")
+	switch s.ProtocolVersion {
+	case 0, 1:
+		if s.Decimals != 9 || s.StakingMode != "" || s.RewardFunding != "" {
+			return errors.New("legacy protocol requires nine decimals and no staking policy")
+		}
+	case 2:
+		if s.Decimals != 6 || s.StakingMode != "optional" || s.RewardFunding != "fees-only" {
+			return errors.New("v2 requires six decimals, optional staking and fee-only rewards")
+		}
+	default:
+		return errors.New("unsupported protocol version")
 	}
 	if s.ConsensusEngine != "CometBFT" {
 		return errors.New("unsupported consensus engine")

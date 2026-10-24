@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"bajar-network-starter/internal/ledger"
+	"bajar-network-starter/internal/ledgerv2"
 	cfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/crypto"
 	"github.com/cometbft/cometbft/crypto/mldsa65"
@@ -29,6 +30,10 @@ import (
 )
 
 const ChainID = "bajar-testnet-1"
+const StakingChainID = "bajar-testnet-2"
+
+func knownChain(id string) bool { return id == ChainID || id == StakingChainID }
+
 const ProfileFile = "config/testnet.json"
 const MaxJSON = 2 << 20
 
@@ -50,7 +55,7 @@ type Profile struct {
 	GenesisSHA256 string     `json:"genesis_sha256"`
 	Peers         []Identity `json:"peers"`
 }
-type InitOptions struct{ Home, Role, Name, Advertise, P2PListen, RPCListen string }
+type InitOptions struct{ Home, Role, Name, Advertise, P2PListen, RPCListen, ChainID string }
 
 func ReadJSON(path string, v any) error {
 	b, err := readBounded(path)
@@ -161,7 +166,7 @@ func Listen(address string, loopback bool) error {
 	return nil
 }
 func (i Identity) Validate() error {
-	if i.Version != 1 || i.ChainID != ChainID || !nameRE.MatchString(i.Name) {
+	if i.Version != 1 || !knownChain(i.ChainID) || !nameRE.MatchString(i.Name) {
 		return errors.New("invalid identity version, chain or name")
 	}
 	b, err := hex.DecodeString(i.NodeID)
@@ -224,6 +229,12 @@ func NewConfig(home string, i Identity, p2pListen, rpcListen string) (*cfg.Confi
 // Init creates exactly one node's secrets on that node. Existing homes are refused.
 func Init(o InitOptions) (Identity, error) {
 	var i Identity
+	if o.ChainID == "" {
+		o.ChainID = ChainID
+	}
+	if !knownChain(o.ChainID) {
+		return i, errors.New("unsupported testnet chain ID")
+	}
 	home, err := filepath.Abs(o.Home)
 	if err != nil {
 		return i, err
@@ -255,7 +266,7 @@ func Init(o InitOptions) (Identity, error) {
 	if err != nil {
 		return i, err
 	}
-	i = Identity{Version: 1, ChainID: ChainID, Role: o.Role, Name: o.Name, NodeID: string(nk.ID()), P2PAddress: o.Advertise}
+	i = Identity{Version: 1, ChainID: o.ChainID, Role: o.Role, Name: o.Name, NodeID: string(nk.ID()), P2PAddress: o.Advertise}
 	if o.Role == "validator" {
 		key, err := mldsa65.GenPrivKey()
 		if err != nil {
@@ -302,6 +313,9 @@ func PeerString(own Identity, peers []Identity) (string, error) {
 		if err := i.Validate(); err != nil {
 			return "", err
 		}
+		if i.ChainID != own.ChainID {
+			return "", errors.New("cross-network peer identity")
+		}
 		if seen[i.NodeID] || addresses[i.P2PAddress] {
 			return "", errors.New("duplicate/self peer identity or address")
 		}
@@ -346,6 +360,10 @@ func Assemble(ids []Identity, when time.Time, funding map[string]string) (*types
 		return nil, errors.New("four validators and an explicit UTC genesis time required")
 	}
 	accounts := map[string]ledger.Account{ledger.ReserveAddress: {Balance: ledger.SeparateReserve}, ledger.FormerAddress: {Balance: ledger.FormerReserve}, ledger.PendingAddress: {Balance: "80000000000000000000"}, ledger.FeeAddress: {Balance: "0"}}
+	chain := ids[0].ChainID
+	if chain == StakingChainID {
+		accounts = map[string]ledger.Account{ledger.ReserveAddress: {Balance: ledgerv2.SeparateReserve}, ledger.FormerAddress: {Balance: ledgerv2.FormerReserve}, ledger.PendingAddress: {Balance: ledgerv2.PendingSupply}, ledger.FeeAddress: {Balance: "0"}, ledgerv2.StakeAddress: {Balance: "0"}}
+	}
 	remaining, _ := new(big.Int).SetString(accounts[ledger.PendingAddress].Balance, 10)
 	for address, value := range funding {
 		if !ledger.ValidAddress(address) || len(value) > 20 || len(value) == 0 || (len(value) > 1 && value[0] == '0') {
@@ -367,16 +385,28 @@ func Assemble(ids []Identity, when time.Time, funding map[string]string) (*types
 		accounts[address] = ledger.Account{Balance: value}
 	}
 	accounts[ledger.PendingAddress] = ledger.Account{Balance: remaining.String()}
-	g := ledger.Genesis{ChainID: ChainID, Decimals: 9, MaxSupply: ledger.MaxSupply, Fee: "1000", Accounts: accounts}
-	if err := g.Validate(); err != nil {
-		return nil, err
+	var state []byte
+	if chain == StakingChainID {
+		g := ledgerv2.Genesis{ProtocolVersion: 2, ChainID: chain, Decimals: 6, MaxSupply: ledgerv2.MaxSupply, Fee: "1", UnbondingBlocks: 100, Accounts: accounts}
+		if err := g.Validate(); err != nil {
+			return nil, err
+		}
+		state, _ = json.Marshal(g)
+	} else {
+		g := ledger.Genesis{ChainID: chain, Decimals: 9, MaxSupply: ledger.MaxSupply, Fee: "1000", Accounts: accounts}
+		if err := g.Validate(); err != nil {
+			return nil, err
+		}
+		state, _ = json.Marshal(g)
 	}
-	state, _ := json.Marshal(g)
 	vals := make([]types.GenesisValidator, 0, 4)
 	nodes, keys, names, addresses := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, i := range ids {
 		if err := i.Validate(); err != nil {
 			return nil, err
+		}
+		if i.ChainID != chain {
+			return nil, errors.New("mixed protocol identities")
 		}
 		if i.Role != "validator" || nodes[i.NodeID] || keys[string(i.PublicKey)] || names[i.Name] || addresses[i.P2PAddress] {
 			return nil, errors.New("expected four distinct validator identities")
@@ -393,11 +423,11 @@ func Assemble(ids []Identity, when time.Time, funding map[string]string) (*types
 	params := types.DefaultConsensusParams()
 	params.Validator.PubKeyTypes = []string{mldsa65.KeyType}
 	params.Block.MaxBytes = 1 << 20
-	doc := &types.GenesisDoc{ChainID: ChainID, GenesisTime: when, InitialHeight: 1, ConsensusParams: params, Validators: vals, AppState: state}
+	doc := &types.GenesisDoc{ChainID: chain, GenesisTime: when, InitialHeight: 1, ConsensusParams: params, Validators: vals, AppState: state}
 	return doc, doc.ValidateAndComplete()
 }
 func ValidateGenesis(g *types.GenesisDoc) error {
-	if g.ChainID != ChainID || g.InitialHeight != 1 || len(g.Validators) != 4 || g.ConsensusParams == nil || g.GenesisTime.IsZero() {
+	if !knownChain(g.ChainID) || g.InitialHeight != 1 || len(g.Validators) != 4 || g.ConsensusParams == nil || g.GenesisTime.IsZero() {
 		return errors.New("unexpected testnet genesis")
 	}
 	if err := g.ValidateAndComplete(); err != nil {
@@ -415,6 +445,16 @@ func ValidateGenesis(g *types.GenesisDoc) error {
 			return errors.New("invalid validator set")
 		}
 		seen[string(v.PubKey.Bytes())] = true
+	}
+	if g.ChainID == StakingChainID {
+		var app ledgerv2.Genesis
+		if err := ledger.Decode(g.AppState, &app); err != nil {
+			return err
+		}
+		if app.ChainID != StakingChainID {
+			return errors.New("v2 chain mismatch")
+		}
+		return app.Validate()
 	}
 	var app ledger.Genesis
 	if err := ledger.Decode(g.AppState, &app); err != nil {
@@ -442,6 +482,9 @@ func ReadGenesis(path, expected string) (*types.GenesisDoc, []byte, error) {
 		return nil, nil, errors.New("genesis hash mismatch or oversized genesis")
 	}
 	// Do not let upstream default an omitted genesis time to each node's wall clock.
+	if err := ledger.ValidateJSON(b); err != nil {
+		return nil, nil, err
+	}
 	var g types.GenesisDoc
 	if err := cmtjson.Unmarshal(b, &g); err != nil {
 		return nil, nil, err
@@ -467,6 +510,9 @@ func Install(home, path, expected string) error {
 	g, b, err := ReadGenesis(path, expected)
 	if err != nil {
 		return err
+	}
+	if g.ChainID != p.Identity.ChainID {
+		return errors.New("genesis and local identity belong to different networks")
 	}
 	if p.Identity.Role == "validator" && !member(g, p.Identity) {
 		return errors.New("local validator absent from genesis")
@@ -529,7 +575,9 @@ func ValidateStart(home string, c *cfg.Config, g *types.GenesisDoc) (types.PrivV
 	if err != nil {
 		return nil, err
 	}
-	if pinned.ChainID != g.ChainID {
+	actual, _ := cmtjson.Marshal(g)
+	expected, _ := cmtjson.Marshal(pinned)
+	if pinned.ChainID != p.Identity.ChainID || !bytes.Equal(actual, expected) {
 		return nil, errors.New("genesis mismatch")
 	}
 	if err := Listen(c.RPC.ListenAddress, true); err != nil {
